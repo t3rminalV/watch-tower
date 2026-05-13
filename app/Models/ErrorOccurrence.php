@@ -19,6 +19,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'fingerprint',
     'user_identifier',
     'user_email',
+    'user_name',
     'file',
     'line',
     'is_handled',

@@ -66,7 +66,22 @@
       "Bash(/usr/bin/curl -s -o /dev/null -w 'notifications/show: %{http_code}\\\\n' http://127.0.0.1:8765/projects/acme-app/notifications/8a63233eafe5806e4c7407816a197b582e964fe6)",
       "Bash(/usr/bin/curl -s -o /dev/null -w 'mail/show: %{http_code}\\\\n' http://127.0.0.1:8765/projects/acme-app/mail/612b3bc6cfa82605363cdcd6b4ee8dbbe315ee6c)",
       "Bash(/usr/bin/curl -s -o /dev/null -w 'notifications/show: %{http_code}\\\\n' \"http://127.0.0.1:8765/projects/acme-app/notifications/$\\(php artisan tinker --execute 'echo sha1\\(\\\\App\\\\Models\\\\NotificationSend::query\\(\\)->value\\(\"notification_class\"\\)\\);' 2>&1)",
-      "Bash(/usr/bin/pkill -f \"artisan serve --port=8765\")"
+      "Bash(/usr/bin/pkill -f \"artisan serve --port=8765\")",
+      "Bash(/usr/bin/grep -n \"^}$\" /Users/wedevs/Desktop/projects/laravel/database/seeders/DemoDataSeeder.php)",
+      "Bash(/usr/bin/pkill -f \"artisan serve --port=8766\")",
+      "Bash(echo \"PID=$!\")",
+      "Bash(curl -s -o /tmp/index.html -w \"INDEX:%{http_code}\\\\n\" http://127.0.0.1:8765/projects/acme-app/http-client)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:8888/projects/acme-app/logs)",
+      "Bash(curl -s \"http://127.0.0.1:8888/projects/acme-app/logs?range=24h&level=error\" -w \"\\\\nHTTP %{http_code}\\\\n\" -o /dev/null)",
+      "Bash(curl -s \"http://127.0.0.1:8888/projects/acme-app/logs?search=backup\" -w \"HTTP %{http_code}\\\\n\" -o /dev/null)",
+      "Bash(curl -s \"http://127.0.0.1:8888/projects/acme-app/logs?range=7d&user=Riley\" -w \"HTTP %{http_code}\\\\n\" -o /dev/null)",
+      "Bash(php -r 'require __DIR__.\"/vendor/autoload.php\"; $app = require __DIR__.\"/bootstrap/app.php\"; $app->make\\(\"Illuminate\\\\Contracts\\\\Console\\\\Kernel\"\\)->bootstrap\\(\\); $count = App\\\\Models\\\\LogEntry::count\\(\\); $levels = App\\\\Models\\\\LogEntry::query\\(\\)->selectRaw\\(\"level, count\\(*\\) as c\"\\)->groupBy\\(\"level\"\\)->pluck\\(\"c\",\"level\"\\); $users = App\\\\Models\\\\LogEntry::query\\(\\)->whereNotNull\\(\"user_name\"\\)->distinct\\(\\)->pluck\\(\"user_name\"\\); echo \"total=$count\\\\nlevels=\".$levels->toJson\\(\\).\"\\\\nusers=\".$users->toJson\\(\\).\"\\\\n\";')",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:8889/projects/acme-app/users)",
+      "Bash(curl -s \"http://127.0.0.1:8889/projects/acme-app/users/usr_0UD8NS4EIJ\" -w \"\\\\nShow HTTP %{http_code} size %{size_download}\\\\n\" -o /tmp/users-show.html)",
+      "Bash(curl -s \"http://127.0.0.1:8889/projects/acme-app/users?range=24h&search=felix\" -w \"Search HTTP %{http_code}\\\\n\" -o /dev/null)",
+      "Bash(curl -s \"http://127.0.0.1:8889/projects/acme-app/users?range=7d\" -w \"Range7d HTTP %{http_code}\\\\n\" -o /dev/null)",
+      "Bash(curl -s \"http://127.0.0.1:8889/projects/acme-app/users/usr_does_not_exist\" -w \"404 HTTP %{http_code}\\\\n\" -o /dev/null)",
+      "Bash(find resources/js/pages/projects/placeholder*)"
     ],
     "additionalDirectories": [
       "/tmp"

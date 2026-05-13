@@ -23,6 +23,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'attempts',
     'status',
     'payload',
+    'user_identifier',
+    'user_email',
+    'user_name',
     'exception',
     'environment',
 ])]

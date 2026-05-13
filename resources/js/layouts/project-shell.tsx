@@ -3,27 +3,23 @@ import {
     Activity,
     AlertTriangle,
     Bell,
-    Boxes,
-    Braces,
     Bug,
     CalendarClock,
     Database,
-    Eye,
     FileText,
     HardDrive,
     LayoutDashboard,
-    Layers,
     Mail,
     Moon,
     Network,
-    Server,
-    ShieldCheck,
+    PanelLeftClose,
+    PanelLeftOpen,
     Sun,
     Terminal,
     Users,
     Workflow,
 } from 'lucide-react';
-import type { ComponentType, ReactNode } from 'react';
+import { useEffect, useState, type ComponentType, type ReactNode } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -31,16 +27,20 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Separator } from '@/components/ui/separator';
 import { useTheme } from '@/hooks/use-theme';
 import { cn } from '@/lib/utils';
-import { dashboard, placeholder } from '@/routes/projects';
+import { dashboard } from '@/routes/projects';
 import commands from '@/routes/projects/commands';
 import exceptions from '@/routes/projects/exceptions';
 import issues from '@/routes/projects/issues';
+import cache from '@/routes/projects/cache';
+import httpClient from '@/routes/projects/http-client';
 import jobs from '@/routes/projects/jobs';
+import logs from '@/routes/projects/logs';
 import mail from '@/routes/projects/mail';
 import notifications from '@/routes/projects/notifications';
 import queries from '@/routes/projects/queries';
 import requests from '@/routes/projects/requests';
 import scheduledTasks from '@/routes/projects/scheduled-tasks';
+import users from '@/routes/projects/users';
 import type { User } from '@/types/auth';
 import type { CurrentProject, ProjectSummary } from '@/types/inertia';
 
@@ -67,25 +67,70 @@ type NavItem = {
 export function ProjectShell({ project, projects, user, children }: ProjectShellProps) {
     const groups = navigationGroups(project);
     const path = usePage().url;
+    const [collapsed, toggleCollapsed] = useSidebarCollapsed();
 
     return (
         <div className="flex min-h-screen">
-            <aside className="hidden w-60 shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground md:flex">
-                <div className="flex h-14 items-center gap-2 px-4">
-                    <span className="grid h-7 w-7 place-items-center rounded-md bg-emerald-500 text-xs font-semibold text-white">
-                        LW
-                    </span>
-                    <span className="text-sm font-semibold tracking-tight">LaravelWatch</span>
+            <aside
+                className={cn(
+                    'sticky top-0 hidden h-screen shrink-0 flex-col self-start border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 md:flex',
+                    collapsed ? 'w-14' : 'w-60',
+                )}
+            >
+                <div
+                    className={cn(
+                        'flex h-14 items-center',
+                        collapsed ? 'justify-center px-2' : 'gap-2 px-4',
+                    )}
+                >
+                    {collapsed ? (
+                        <button
+                            type="button"
+                            onClick={toggleCollapsed}
+                            aria-label="Expand sidebar"
+                            title="Expand sidebar"
+                            className="group relative grid h-7 w-7 shrink-0 place-items-center rounded-md bg-emerald-500 text-xs font-semibold text-white transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                        >
+                            <span className="group-hover:opacity-0">LW</span>
+                            <PanelLeftOpen className="absolute h-4 w-4 opacity-0 group-hover:opacity-100" />
+                        </button>
+                    ) : (
+                        <>
+                            <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-emerald-500 text-xs font-semibold text-white">
+                                LW
+                            </span>
+                            <span className="text-sm font-semibold tracking-tight">LaravelWatch</span>
+                            <Button
+                                type="button"
+                                onClick={toggleCollapsed}
+                                variant="ghost"
+                                size="icon"
+                                className="ml-auto h-7 w-7"
+                                aria-label="Collapse sidebar"
+                            >
+                                <PanelLeftClose className="h-4 w-4" />
+                            </Button>
+                        </>
+                    )}
                 </div>
                 <Separator />
 
-                <ProjectSwitcher current={project} projects={projects} />
-                <Separator />
+                {!collapsed && (
+                    <>
+                        <ProjectSwitcher current={project} projects={projects} />
+                        <Separator />
+                    </>
+                )}
 
-                <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4 text-sm">
+                <nav
+                    className={cn(
+                        'flex-1 overflow-y-auto py-4 text-sm',
+                        collapsed ? 'space-y-2 px-2' : 'space-y-5 px-3',
+                    )}
+                >
                     {groups.map((group, idx) => (
                         <div key={group.label ?? `group-${idx}`}>
-                            {group.label && (
+                            {group.label && !collapsed && (
                                 <div className="px-2 pb-1 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
                                     {group.label}
                                 </div>
@@ -98,19 +143,25 @@ export function ProjectShell({ project, projects, user, children }: ProjectShell
                                         <li key={item.label}>
                                             <Link
                                                 href={item.href}
+                                                title={collapsed ? item.label : undefined}
                                                 className={cn(
-                                                    'flex items-center gap-2 rounded-md px-2 py-1.5 text-[13px] transition-colors',
+                                                    'flex items-center rounded-md text-[13px] transition-colors',
+                                                    collapsed ? 'h-9 w-9 justify-center' : 'gap-2 px-2 py-1.5',
                                                     active
                                                         ? 'bg-sidebar-accent font-medium text-sidebar-accent-foreground'
                                                         : 'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
                                                 )}
                                             >
                                                 <Icon className="h-4 w-4 shrink-0" />
-                                                <span className="flex-1">{item.label}</span>
-                                                {typeof item.badge === 'number' && item.badge > 0 && (
-                                                    <Badge variant="muted" className="px-1.5 text-[10px] font-medium">
-                                                        {item.badge > 999 ? '999+' : item.badge}
-                                                    </Badge>
+                                                {!collapsed && (
+                                                    <>
+                                                        <span className="flex-1">{item.label}</span>
+                                                        {typeof item.badge === 'number' && item.badge > 0 && (
+                                                            <Badge variant="muted" className="px-1.5 text-[10px] font-medium">
+                                                                {item.badge > 999 ? '999+' : item.badge}
+                                                            </Badge>
+                                                        )}
+                                                    </>
                                                 )}
                                             </Link>
                                         </li>
@@ -122,12 +173,29 @@ export function ProjectShell({ project, projects, user, children }: ProjectShell
                 </nav>
 
                 <Separator />
-                <UserFooter user={user} />
+                <UserFooter user={user} collapsed={collapsed} />
             </aside>
 
-            <main className="flex flex-1 flex-col bg-muted/30">{children}</main>
+            <main className="flex min-w-0 flex-1 flex-col bg-muted/30">{children}</main>
         </div>
     );
+}
+
+function useSidebarCollapsed(): [boolean, () => void] {
+    const [collapsed, setCollapsed] = useState<boolean>(() => {
+        if (typeof window === 'undefined') return false;
+        return window.localStorage.getItem('sidebar:collapsed') === '1';
+    });
+
+    useEffect(() => {
+        try {
+            window.localStorage.setItem('sidebar:collapsed', collapsed ? '1' : '0');
+        } catch {
+            // ignore quota / privacy errors
+        }
+    }, [collapsed]);
+
+    return [collapsed, () => setCollapsed((c) => !c)];
 }
 
 function ProjectSwitcher({ current, projects }: { current: CurrentProject; projects: ProjectSummary[] }) {
@@ -161,8 +229,32 @@ function ProjectSwitcher({ current, projects }: { current: CurrentProject; proje
     );
 }
 
-function UserFooter({ user }: { user: User | null }) {
+function UserFooter({ user, collapsed }: { user: User | null; collapsed: boolean }) {
     const { theme, toggle } = useTheme();
+
+    if (collapsed) {
+        return (
+            <div className="flex flex-col items-center gap-1 px-2 py-3">
+                <Button
+                    type="button"
+                    onClick={toggle}
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+                    title={theme === 'dark' ? 'Light theme' : 'Dark theme'}
+                >
+                    {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                </Button>
+                <span
+                    className="grid h-7 w-7 place-items-center rounded-full bg-primary text-[11px] font-semibold text-primary-foreground"
+                    title={user?.name ?? 'Guest'}
+                >
+                    {(user?.name ?? 'G').charAt(0).toUpperCase()}
+                </span>
+            </div>
+        );
+    }
 
     return (
         <div className="flex items-center gap-2 px-3 py-3 text-xs">
@@ -244,16 +336,10 @@ function navigationGroups(project: CurrentProject): NavGroup[] {
                     matches: (p) => p.endsWith('/queries') || p.includes('/queries?') || p.includes('/queries/'),
                 },
                 {
-                    label: 'Models',
-                    icon: Layers,
-                    href: placeholder({ project: slug, section: 'models' }).url,
-                    matches: (p) => p.endsWith('/models'),
-                },
-                {
                     label: 'Cache',
                     icon: HardDrive,
-                    href: placeholder({ project: slug, section: 'cache' }).url,
-                    matches: (p) => p.endsWith('/cache'),
+                    href: cache.index(slug).url,
+                    matches: (p) => p.includes('/cache'),
                 },
                 {
                     label: 'Notifications',
@@ -270,14 +356,8 @@ function navigationGroups(project: CurrentProject): NavGroup[] {
                 {
                     label: 'HTTP Client',
                     icon: Network,
-                    href: placeholder({ project: slug, section: 'http-client' }).url,
-                    matches: (p) => p.endsWith('/http-client'),
-                },
-                {
-                    label: 'Events',
-                    icon: Boxes,
-                    href: placeholder({ project: slug, section: 'events' }).url,
-                    matches: (p) => p.endsWith('/events'),
+                    href: httpClient.index(slug).url,
+                    matches: (p) => p.includes('/http-client'),
                 },
             ],
         },
@@ -287,38 +367,14 @@ function navigationGroups(project: CurrentProject): NavGroup[] {
                 {
                     label: 'Users',
                     icon: Users,
-                    href: placeholder({ project: slug, section: 'logs' }).url,
-                    matches: (p) => p.endsWith('/users'),
+                    href: users.index(slug).url,
+                    matches: (p) => p.endsWith('/users') || p.includes('/users?') || p.includes('/users/'),
                 },
                 {
                     label: 'Logs',
                     icon: FileText,
-                    href: placeholder({ project: slug, section: 'logs' }).url,
-                    matches: (p) => p.endsWith('/logs'),
-                },
-                {
-                    label: 'Dumps',
-                    icon: Braces,
-                    href: placeholder({ project: slug, section: 'dumps' }).url,
-                    matches: (p) => p.endsWith('/dumps'),
-                },
-                {
-                    label: 'Views',
-                    icon: Eye,
-                    href: placeholder({ project: slug, section: 'views' }).url,
-                    matches: (p) => p.endsWith('/views'),
-                },
-                {
-                    label: 'Gates',
-                    icon: ShieldCheck,
-                    href: placeholder({ project: slug, section: 'gates' }).url,
-                    matches: (p) => p.endsWith('/gates'),
-                },
-                {
-                    label: 'Redis',
-                    icon: Server,
-                    href: placeholder({ project: slug, section: 'redis' }).url,
-                    matches: (p) => p.endsWith('/redis'),
+                    href: logs.index(slug).url,
+                    matches: (p) => p.endsWith('/logs') || p.includes('/logs?'),
                 },
             ],
         },

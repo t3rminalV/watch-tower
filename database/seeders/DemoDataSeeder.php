@@ -2,12 +2,15 @@
 
 namespace Database\Seeders;
 
+use App\Models\CacheEvent;
 use App\Models\CommandRun;
 use App\Models\ErrorGroup;
 use App\Models\ErrorOccurrence;
+use App\Models\LogEntry;
 use App\Models\MailSend;
 use App\Models\NotificationSend;
 use App\Models\Organization;
+use App\Models\OutgoingRequest;
 use App\Models\Project;
 use App\Models\QueueJobRun;
 use App\Models\ScheduledTaskRun;
@@ -17,6 +20,7 @@ use App\Models\User;
 use App\Watch\Fingerprinter;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
@@ -64,13 +68,7 @@ class DemoDataSeeder extends Seeder
         $now = CarbonImmutable::now();
         $start = $now->subDay();
 
-        $endUsers = [];
-        for ($i = 1; $i <= 60; $i++) {
-            $endUsers[] = [
-                'id' => 'usr_'.Str::random(10),
-                'email' => 'end-user-'.$i.'@flywp.test',
-            ];
-        }
+        $endUsers = $this->buildEndUserPool();
 
         $routes = [
             ['GET', '/api/users', 200, 12],
@@ -127,6 +125,7 @@ class DemoDataSeeder extends Seeder
                 'status_code' => $status,
                 'user_identifier' => $endUser['id'] ?? null,
                 'user_email' => $endUser['email'] ?? null,
+                'user_name' => $endUser['name'] ?? null,
                 'duration_ms' => $duration,
                 'db_queries_count' => random_int(0, 18),
                 'db_time_ms' => random_int(0, max(1, (int) ($duration / 3))),
@@ -152,20 +151,24 @@ class DemoDataSeeder extends Seeder
             Trace::query()->insert($chunk);
         }
 
-        $this->seedExceptions($project, $traces, $start, $teamUsers);
+        $this->seedExceptions($project, $traces, $start, $teamUsers, $endUsers);
         $this->seedQueries($project, $traces);
-        $this->seedJobs($project, $start);
+        $this->seedJobs($project, $start, $endUsers);
         $this->seedCommands($project, $start);
         $this->seedScheduledTasks($project, $start, $now);
         $this->seedMail($project, $start);
         $this->seedNotifications($project, $start);
+        $this->seedCache($project, $start);
+        $this->seedOutgoingRequests($project, $start);
+        $this->seedLogs($project, $start, $teamUsers);
     }
 
     /**
      * @param  list<array<string, mixed>>  $traces
      * @param  list<User>  $teamUsers
+     * @param  list<array{id:string,email:string,name:string}>  $endUsers
      */
-    private function seedExceptions(Project $project, array $traces, CarbonImmutable $start, array $teamUsers): void
+    private function seedExceptions(Project $project, array $traces, CarbonImmutable $start, array $teamUsers, array $endUsers): void
     {
         $templates = [
             [
@@ -291,6 +294,17 @@ class DemoDataSeeder extends Seeder
                 ? CarbonImmutable::parse($trace['occurred_at'])
                 : $start->addSeconds(random_int(0, 86_400));
 
+            $errorUser = null;
+            if ($trace !== null && ! empty($trace['user_identifier'])) {
+                $errorUser = [
+                    'id' => $trace['user_identifier'],
+                    'email' => $trace['user_email'],
+                    'name' => $trace['user_name'],
+                ];
+            } elseif ($endUsers !== [] && random_int(1, 100) <= 75) {
+                $errorUser = $endUsers[array_rand($endUsers)];
+            }
+
             $fingerprint = $fingerprinter->forException([
                 'class' => $tpl['class'],
                 'file' => $tpl['file'],
@@ -343,8 +357,9 @@ class DemoDataSeeder extends Seeder
                 'message' => $tpl['message'],
                 'stacktrace' => json_encode($tpl['stacktrace']),
                 'fingerprint' => $fingerprint,
-                'user_identifier' => random_int(1, 100) <= 70 ? 'user_'.random_int(1, 40) : null,
-                'user_email' => random_int(1, 100) <= 40 ? 'user'.random_int(1, 40).'@example.test' : null,
+                'user_identifier' => $errorUser['id'] ?? null,
+                'user_email' => $errorUser['email'] ?? null,
+                'user_name' => $errorUser['name'] ?? null,
                 'file' => $tpl['file'],
                 'line' => $tpl['line'],
                 'is_handled' => $tpl['is_handled'],
@@ -518,7 +533,10 @@ class DemoDataSeeder extends Seeder
         return $index;
     }
 
-    private function seedJobs(Project $project, CarbonImmutable $start): void
+    /**
+     * @param  list<array{id:string,email:string,name:string}>  $endUsers
+     */
+    private function seedJobs(Project $project, CarbonImmutable $start, array $endUsers): void
     {
         $jobClasses = [
             'App\\Events\\Backup\\BackupCreated',
@@ -561,6 +579,10 @@ class DemoDataSeeder extends Seeder
             $completedAt = $status === 'completed' && $startedAt !== null ? $startedAt->addMilliseconds($duration) : null;
             $failedAt = $status === 'failed' && $startedAt !== null ? $startedAt->addMilliseconds($duration) : null;
 
+            $jobUser = $endUsers !== [] && random_int(1, 100) <= 65
+                ? $endUsers[array_rand($endUsers)]
+                : null;
+
             $rows[] = [
                 'id' => (string) Str::uuid(),
                 'project_id' => $project->id,
@@ -576,6 +598,9 @@ class DemoDataSeeder extends Seeder
                 'attempts' => $status === 'failed' ? random_int(2, 3) : ($status === 'queued' ? 0 : 1),
                 'status' => $status,
                 'payload' => json_encode([]),
+                'user_identifier' => $jobUser['id'] ?? null,
+                'user_email' => $jobUser['email'] ?? null,
+                'user_name' => $jobUser['name'] ?? null,
                 'exception' => $status === 'failed' ? json_encode(['class' => 'RuntimeException', 'message' => 'demo failure']) : null,
                 'environment' => 'production',
                 'created_at' => $dispatched,
@@ -952,5 +977,408 @@ class DemoDataSeeder extends Seeder
         foreach (array_chunk($rows, 200) as $chunk) {
             NotificationSend::query()->insert($chunk);
         }
+    }
+
+    private function seedCache(Project $project, CarbonImmutable $start): void
+    {
+        $keys = [
+            ['key' => 'site.settings', 'reads' => 1100, 'writes' => 28, 'deletes' => 4, 'hit_rate' => 96, 'fail_rate' => 0],
+            ['key' => 'projects.list', 'reads' => 720, 'writes' => 60, 'deletes' => 12, 'hit_rate' => 88, 'fail_rate' => 1],
+            ['key' => 'user.permissions.{id}', 'reads' => 980, 'writes' => 150, 'deletes' => 30, 'hit_rate' => 84, 'fail_rate' => 1],
+            ['key' => 'team.members.{slug}', 'reads' => 360, 'writes' => 30, 'deletes' => 6, 'hit_rate' => 91, 'fail_rate' => 0],
+            ['key' => 'projects.dashboard.metrics', 'reads' => 540, 'writes' => 120, 'deletes' => 8, 'hit_rate' => 77, 'fail_rate' => 0],
+            ['key' => 'flags.feature.web', 'reads' => 410, 'writes' => 14, 'deletes' => 1, 'hit_rate' => 99, 'fail_rate' => 0],
+            ['key' => 'billing.invoice.{id}', 'reads' => 220, 'writes' => 90, 'deletes' => 38, 'hit_rate' => 65, 'fail_rate' => 5],
+            ['key' => 'queue.config', 'reads' => 130, 'writes' => 10, 'deletes' => 2, 'hit_rate' => 95, 'fail_rate' => 0],
+            ['key' => 'rate-limit:{ip}:{route}', 'reads' => 1450, 'writes' => 320, 'deletes' => 80, 'hit_rate' => 71, 'fail_rate' => 2],
+            ['key' => 'session:{id}', 'reads' => 1200, 'writes' => 800, 'deletes' => 60, 'hit_rate' => 82, 'fail_rate' => 1],
+            ['key' => 'menu.navigation', 'reads' => 360, 'writes' => 12, 'deletes' => 1, 'hit_rate' => 98, 'fail_rate' => 0],
+            ['key' => 'reports.weekly.{year}.{week}', 'reads' => 90, 'writes' => 18, 'deletes' => 6, 'hit_rate' => 60, 'fail_rate' => 3],
+        ];
+
+        $environments = ['production', 'production', 'production', 'staging'];
+        $stores = ['redis', 'redis', 'redis', 'database'];
+
+        $rows = [];
+
+        foreach ($keys as $tpl) {
+            $key = (string) $tpl['key'];
+            $hits = (int) round($tpl['reads'] * ($tpl['hit_rate'] / 100));
+            $misses = max(0, $tpl['reads'] - $hits);
+
+            $events = [
+                ['op' => 'hit', 'count' => $hits, 'success_rate' => 100],
+                ['op' => 'miss', 'count' => $misses, 'success_rate' => 100],
+                ['op' => 'write', 'count' => $tpl['writes'], 'success_rate' => 100 - max(0, intdiv($tpl['fail_rate'], 2))],
+                ['op' => 'delete', 'count' => $tpl['deletes'], 'success_rate' => 100 - $tpl['fail_rate']],
+            ];
+
+            foreach ($events as $event) {
+                for ($i = 0; $i < $event['count']; $i++) {
+                    $succeeded = random_int(1, 100) <= $event['success_rate'];
+
+                    $duration = match ($event['op']) {
+                        'hit' => random_int(0, 3),
+                        'miss' => random_int(0, 4),
+                        'write' => random_int(1, 8),
+                        'delete' => random_int(1, 6),
+                        default => 1,
+                    };
+
+                    $offsetSeconds = random_int(0, 86_400);
+                    $occurredAt = $start->addSeconds($offsetSeconds);
+
+                    $rows[] = [
+                        'id' => (string) Str::uuid(),
+                        'project_id' => $project->id,
+                        'trace_id' => null,
+                        'key' => $key,
+                        'store' => $stores[array_rand($stores)],
+                        'operation' => $event['op'],
+                        'succeeded' => $succeeded,
+                        'duration_ms' => $duration,
+                        'environment' => $environments[array_rand($environments)],
+                        'occurred_at' => $occurredAt,
+                        'created_at' => $occurredAt,
+                        'updated_at' => $occurredAt,
+                    ];
+                }
+            }
+        }
+
+        foreach (array_chunk($rows, 500) as $chunk) {
+            CacheEvent::query()->insert($chunk);
+        }
+    }
+
+    private function seedOutgoingRequests(Project $project, CarbonImmutable $start): void
+    {
+        $hosts = [
+            ['host' => 'api.stripe.com', 'count' => 320, 'avg_ms' => 180, 'methods' => ['POST', 'GET'], 'paths' => ['/v1/charges', '/v1/customers', '/v1/invoices', '/v1/payment_intents'], 'success_rate' => 99, 'rate_400' => 1, 'rate_500' => 0],
+            ['host' => 'api.cloudflare.com', 'count' => 280, 'avg_ms' => 95, 'methods' => ['GET', 'POST', 'PUT', 'DELETE'], 'paths' => ['/client/v4/zones', '/client/v4/zones/{id}/dns_records', '/client/v4/accounts/{id}/storage', '/client/v4/user'], 'success_rate' => 98, 'rate_400' => 1, 'rate_500' => 1],
+            ['host' => 'api.github.com', 'count' => 220, 'avg_ms' => 240, 'methods' => ['GET', 'POST'], 'paths' => ['/repos/{owner}/{repo}', '/users/{user}/repos', '/repos/{owner}/{repo}/pulls', '/search/code'], 'success_rate' => 96, 'rate_400' => 3, 'rate_500' => 1],
+            ['host' => 'api.openai.com', 'count' => 190, 'avg_ms' => 1240, 'methods' => ['POST'], 'paths' => ['/v1/chat/completions', '/v1/embeddings', '/v1/images/generations'], 'success_rate' => 92, 'rate_400' => 4, 'rate_500' => 3],
+            ['host' => 'api.digitalocean.com', 'count' => 175, 'avg_ms' => 220, 'methods' => ['GET', 'POST', 'DELETE'], 'paths' => ['/v2/droplets', '/v2/databases', '/v2/load_balancers', '/v2/account'], 'success_rate' => 97, 'rate_400' => 2, 'rate_500' => 1],
+            ['host' => 'api.linode.com', 'count' => 150, 'avg_ms' => 260, 'methods' => ['GET', 'POST'], 'paths' => ['/v4/linode/instances', '/v4/databases', '/v4/account'], 'success_rate' => 96, 'rate_400' => 3, 'rate_500' => 1],
+            ['host' => 'api.vultr.com', 'count' => 135, 'avg_ms' => 280, 'methods' => ['GET', 'POST'], 'paths' => ['/v2/instances', '/v2/account', '/v2/billing/list'], 'success_rate' => 95, 'rate_400' => 4, 'rate_500' => 1],
+            ['host' => 'hooks.slack.com', 'count' => 410, 'avg_ms' => 145, 'methods' => ['POST'], 'paths' => ['/services/{token}'], 'success_rate' => 99, 'rate_400' => 1, 'rate_500' => 0],
+            ['host' => 'api.mailgun.net', 'count' => 380, 'avg_ms' => 210, 'methods' => ['POST'], 'paths' => ['/v3/{domain}/messages', '/v3/{domain}/events'], 'success_rate' => 98, 'rate_400' => 1, 'rate_500' => 1],
+            ['host' => 'api.sendgrid.com', 'count' => 340, 'avg_ms' => 180, 'methods' => ['POST', 'GET'], 'paths' => ['/v3/mail/send', '/v3/templates', '/v3/stats'], 'success_rate' => 98, 'rate_400' => 1, 'rate_500' => 1],
+            ['host' => 'api.postmarkapp.com', 'count' => 220, 'avg_ms' => 165, 'methods' => ['POST'], 'paths' => ['/email', '/email/batch'], 'success_rate' => 99, 'rate_400' => 1, 'rate_500' => 0],
+            ['host' => 'api.twilio.com', 'count' => 195, 'avg_ms' => 320, 'methods' => ['POST', 'GET'], 'paths' => ['/2010-04-01/Accounts/{sid}/Messages.json', '/2010-04-01/Accounts/{sid}/Calls.json'], 'success_rate' => 97, 'rate_400' => 2, 'rate_500' => 1],
+            ['host' => 'api.intercom.io', 'count' => 160, 'avg_ms' => 290, 'methods' => ['GET', 'POST', 'PUT'], 'paths' => ['/contacts', '/conversations', '/articles'], 'success_rate' => 96, 'rate_400' => 3, 'rate_500' => 1],
+            ['host' => 'api.algolia.net', 'count' => 510, 'avg_ms' => 75, 'methods' => ['GET', 'POST'], 'paths' => ['/1/indexes/{index}/query', '/1/indexes/{index}/objects'], 'success_rate' => 99, 'rate_400' => 1, 'rate_500' => 0],
+            ['host' => 'api.pusher.com', 'count' => 290, 'avg_ms' => 105, 'methods' => ['POST'], 'paths' => ['/apps/{id}/events', '/apps/{id}/channels'], 'success_rate' => 99, 'rate_400' => 1, 'rate_500' => 0],
+            ['host' => 'api.ably.io', 'count' => 240, 'avg_ms' => 115, 'methods' => ['POST', 'GET'], 'paths' => ['/channels/{name}/messages', '/stats'], 'success_rate' => 98, 'rate_400' => 1, 'rate_500' => 1],
+            ['host' => 'api.heroku.com', 'count' => 95, 'avg_ms' => 350, 'methods' => ['GET', 'POST'], 'paths' => ['/apps', '/apps/{id}/dynos', '/apps/{id}/releases'], 'success_rate' => 95, 'rate_400' => 3, 'rate_500' => 2],
+            ['host' => 'api.bunny.net', 'count' => 120, 'avg_ms' => 140, 'methods' => ['GET', 'POST'], 'paths' => ['/pullzone', '/storagezone', '/purge'], 'success_rate' => 98, 'rate_400' => 2, 'rate_500' => 0],
+            ['host' => 'api.fastly.com', 'count' => 90, 'avg_ms' => 130, 'methods' => ['GET', 'POST', 'PURGE'], 'paths' => ['/service/{id}', '/service/{id}/version/{ver}', '/purge/{host}'], 'success_rate' => 98, 'rate_400' => 1, 'rate_500' => 1],
+            ['host' => 'api.datadoghq.com', 'count' => 460, 'avg_ms' => 88, 'methods' => ['POST'], 'paths' => ['/api/v1/series', '/api/v1/events', '/api/v1/check_run'], 'success_rate' => 99, 'rate_400' => 1, 'rate_500' => 0],
+            ['host' => 'sentry.io', 'count' => 510, 'avg_ms' => 95, 'methods' => ['POST'], 'paths' => ['/api/{id}/store/', '/api/{id}/envelope/'], 'success_rate' => 99, 'rate_400' => 1, 'rate_500' => 0],
+            ['host' => 'api.segment.io', 'count' => 380, 'avg_ms' => 110, 'methods' => ['POST'], 'paths' => ['/v1/track', '/v1/identify', '/v1/batch'], 'success_rate' => 99, 'rate_400' => 1, 'rate_500' => 0],
+            ['host' => 'api.mixpanel.com', 'count' => 290, 'avg_ms' => 120, 'methods' => ['POST'], 'paths' => ['/track', '/engage', '/import'], 'success_rate' => 98, 'rate_400' => 1, 'rate_500' => 1],
+            ['host' => 'maps.googleapis.com', 'count' => 175, 'avg_ms' => 220, 'methods' => ['GET'], 'paths' => ['/maps/api/geocode/json', '/maps/api/directions/json', '/maps/api/place/details/json'], 'success_rate' => 98, 'rate_400' => 2, 'rate_500' => 0],
+            ['host' => 'graph.facebook.com', 'count' => 130, 'avg_ms' => 260, 'methods' => ['GET', 'POST'], 'paths' => ['/v18.0/me', '/v18.0/{id}/feed', '/v18.0/{id}/messages'], 'success_rate' => 95, 'rate_400' => 4, 'rate_500' => 1],
+            ['host' => 'api.twitter.com', 'count' => 110, 'avg_ms' => 280, 'methods' => ['GET', 'POST'], 'paths' => ['/2/tweets', '/2/users/{id}', '/2/users/by/username/{name}'], 'success_rate' => 93, 'rate_400' => 5, 'rate_500' => 2],
+            ['host' => 'api.notion.com', 'count' => 145, 'avg_ms' => 310, 'methods' => ['GET', 'POST', 'PATCH'], 'paths' => ['/v1/pages', '/v1/databases/{id}/query', '/v1/blocks/{id}/children'], 'success_rate' => 96, 'rate_400' => 3, 'rate_500' => 1],
+            ['host' => 'api.airtable.com', 'count' => 95, 'avg_ms' => 240, 'methods' => ['GET', 'POST', 'PATCH'], 'paths' => ['/v0/{base}/{table}', '/v0/meta/bases/{base}/tables'], 'success_rate' => 97, 'rate_400' => 2, 'rate_500' => 1],
+            ['host' => 'api.dropboxapi.com', 'count' => 80, 'avg_ms' => 380, 'methods' => ['POST'], 'paths' => ['/2/files/upload', '/2/files/list_folder', '/2/sharing/create_shared_link'], 'success_rate' => 96, 'rate_400' => 3, 'rate_500' => 1],
+            ['host' => 'www.googleapis.com', 'count' => 165, 'avg_ms' => 290, 'methods' => ['GET', 'POST'], 'paths' => ['/drive/v3/files', '/calendar/v3/calendars/{id}/events', '/oauth2/v3/userinfo'], 'success_rate' => 97, 'rate_400' => 2, 'rate_500' => 1],
+            ['host' => 'login.microsoftonline.com', 'count' => 105, 'avg_ms' => 320, 'methods' => ['POST'], 'paths' => ['/common/oauth2/v2.0/token', '/common/oauth2/v2.0/authorize'], 'success_rate' => 97, 'rate_400' => 2, 'rate_500' => 1],
+            ['host' => 'api.amazonaws.com', 'count' => 230, 'avg_ms' => 175, 'methods' => ['GET', 'POST', 'PUT'], 'paths' => ['/2010-08-01/functions/{name}/invocations', '/sns/publish', '/sqs/sendmessage'], 'success_rate' => 98, 'rate_400' => 1, 'rate_500' => 1],
+            ['host' => 'api.shopify.com', 'count' => 180, 'avg_ms' => 310, 'methods' => ['GET', 'POST'], 'paths' => ['/admin/api/2024-01/orders.json', '/admin/api/2024-01/products.json', '/admin/api/2024-01/customers.json'], 'success_rate' => 96, 'rate_400' => 3, 'rate_500' => 1],
+        ];
+
+        $sources = [
+            ['type' => 'Job', 'labels' => ['ProcessPayment', 'SendInvoice', 'SyncContacts', 'UploadAsset', 'RenderReport']],
+            ['type' => 'Request', 'labels' => ['POST /api/orders', 'POST /api/checkout', 'GET /api/users', 'POST /webhooks/stripe']],
+            ['type' => 'Command', 'labels' => ['sync:contacts', 'reports:weekly', 'cache:warm', 'newsletter:send']],
+            ['type' => 'Scheduled', 'labels' => ['daily-digest', 'hourly-sync', 'reconcile-balances']],
+        ];
+
+        $environments = ['production', 'production', 'production', 'staging'];
+        $rows = [];
+
+        foreach ($hosts as $tpl) {
+            $host = (string) $tpl['host'];
+            $count = (int) $tpl['count'];
+            $avg = (int) $tpl['avg_ms'];
+            $methods = (array) $tpl['methods'];
+            $paths = (array) $tpl['paths'];
+            $successRate = (int) $tpl['success_rate'];
+            $rate400 = (int) $tpl['rate_400'];
+            $rate500 = (int) $tpl['rate_500'];
+
+            for ($i = 0; $i < $count; $i++) {
+                $method = $methods[array_rand($methods)];
+                $path = $paths[array_rand($paths)];
+                $url = 'https://'.$host.$path;
+
+                $r = random_int(1, 100);
+                if ($r <= $successRate) {
+                    $candidates = [200, 200, 200, 200, 201, 204];
+                    if (in_array($method, ['GET'], true) && random_int(1, 100) <= 8) {
+                        $candidates = [301, 302, 304];
+                    }
+                    $status = $candidates[array_rand($candidates)];
+                    $duration = (int) max(2, round($avg * (1 + random_int(-30, 80) / 100)));
+                } elseif ($r <= $successRate + $rate400) {
+                    $status = [400, 401, 403, 404, 409, 422, 429][array_rand([400, 401, 403, 404, 409, 422, 429])];
+                    $duration = (int) max(2, round($avg * (1 + random_int(-40, 30) / 100)));
+                } elseif ($r <= $successRate + $rate400 + $rate500) {
+                    $status = [500, 502, 503, 504][array_rand([500, 502, 503, 504])];
+                    $duration = (int) max(2, round($avg * (1 + random_int(50, 350) / 100)));
+                } else {
+                    $status = null;
+                    $duration = random_int(1500, 5000);
+                }
+
+                if (random_int(1, 100) <= 2) {
+                    $duration = (int) round($duration * random_int(3, 8));
+                }
+
+                $offsetSeconds = random_int(0, 86_400);
+                $occurredAt = $start->addSeconds($offsetSeconds);
+
+                $source = $sources[array_rand($sources)];
+                $sourceLabel = $source['labels'][array_rand($source['labels'])];
+
+                $rows[] = [
+                    'id' => (string) Str::uuid(),
+                    'project_id' => $project->id,
+                    'trace_id' => null,
+                    'method' => $method,
+                    'host' => $host,
+                    'url' => $url,
+                    'status_code' => $status,
+                    'duration_ms' => $duration,
+                    'request_size_bytes' => random_int(120, 4_000),
+                    'response_size_bytes' => $status === null ? null : random_int(200, 18_000),
+                    'source_type' => $source['type'],
+                    'source_id' => 'src_'.Str::random(10),
+                    'source_label' => $sourceLabel,
+                    'environment' => $environments[array_rand($environments)],
+                    'occurred_at' => $occurredAt,
+                    'created_at' => $occurredAt,
+                    'updated_at' => $occurredAt,
+                ];
+            }
+        }
+
+        foreach (array_chunk($rows, 500) as $chunk) {
+            OutgoingRequest::query()->insert($chunk);
+        }
+    }
+
+    /**
+     * @param  list<User>  $teamUsers
+     */
+    private function seedLogs(Project $project, CarbonImmutable $start, array $teamUsers): void
+    {
+        $environments = ['production', 'production', 'production', 'staging'];
+
+        $templates = [
+            ['level' => 'info', 'source_type' => 'command', 'source' => 'backup:sweep', 'message' => 'Backup still running on server', 'context_factory' => 'backup'],
+            ['level' => 'info', 'source_type' => 'command', 'source' => 'queue:work', 'message' => 'Processed: App\\Jobs\\ProcessPayment', 'context_factory' => 'queue'],
+            ['level' => 'info', 'source_type' => 'command', 'source' => 'cache:warm', 'message' => 'Warming cache for tenant', 'context_factory' => 'tenant'],
+            ['level' => 'info', 'source_type' => 'command', 'source' => 'horizon:supervise', 'message' => 'Supervisor started', 'context_factory' => 'supervisor'],
+            ['level' => 'info', 'source_type' => 'job', 'source' => 'App\\Jobs\\ServerProvision', 'message' => "array (\n  'message' => 'Updated proxy docker compose',\n  'server' => '46',\n)", 'context_factory' => 'server'],
+            ['level' => 'info', 'source_type' => 'job', 'source' => 'App\\Jobs\\SyncContacts', 'message' => 'Synced 250 contacts from Mailgun', 'context_factory' => 'sync'],
+            ['level' => 'warning', 'source_type' => 'job', 'source' => 'App\\Jobs\\SiteBackup', 'message' => 'Cannot perform backup on site with status: sleeping', 'context_factory' => 'site'],
+            ['level' => 'warning', 'source_type' => 'job', 'source' => 'App\\Jobs\\DispatchWebhook', 'message' => 'Webhook delivery delayed: rate limit hit', 'context_factory' => 'webhook'],
+            ['level' => 'warning', 'source_type' => 'system', 'source' => 'database.slow_query', 'message' => 'Slow query exceeded 1500ms', 'context_factory' => 'query'],
+            ['level' => 'warning', 'source_type' => 'request', 'source' => 'POST /api/checkout', 'message' => 'Idempotency key reused for checkout request', 'context_factory' => 'checkout'],
+            ['level' => 'error', 'source_type' => 'job', 'source' => 'App\\Jobs\\RenderReport', 'message' => 'Failed to render report: missing template', 'context_factory' => 'report'],
+            ['level' => 'error', 'source_type' => 'request', 'source' => 'POST /api/payments', 'message' => 'Payment gateway returned 502', 'context_factory' => 'payment'],
+            ['level' => 'error', 'source_type' => 'system', 'source' => 'redis.connection', 'message' => 'Lost connection to redis primary, failing over', 'context_factory' => 'redis'],
+            ['level' => 'notice', 'source_type' => 'scheduled', 'source' => 'daily-digest', 'message' => 'Daily digest sent to 1,204 recipients', 'context_factory' => 'digest'],
+            ['level' => 'notice', 'source_type' => 'system', 'source' => 'feature.flag', 'message' => 'Feature flag toggled', 'context_factory' => 'flag'],
+            ['level' => 'debug', 'source_type' => 'request', 'source' => 'GET /api/users', 'message' => 'Cache hit: user.permissions', 'context_factory' => 'permissions'],
+            ['level' => 'debug', 'source_type' => 'command', 'source' => 'telescope:prune', 'message' => 'Pruned 4,210 stale entries', 'context_factory' => 'prune'],
+            ['level' => 'critical', 'source_type' => 'system', 'source' => 'disk.monitor', 'message' => 'Disk usage above 95%', 'context_factory' => 'disk'],
+        ];
+
+        $rows = [];
+        $now = $start->addDay();
+        $window = $now->diffInSeconds($start);
+
+        foreach ($templates as $tpl) {
+            $count = match ($tpl['level']) {
+                'critical' => random_int(2, 6),
+                'error' => random_int(20, 60),
+                'warning' => random_int(40, 90),
+                'notice' => random_int(15, 40),
+                'debug' => random_int(60, 120),
+                default => random_int(120, 260),
+            };
+
+            for ($i = 0; $i < $count; $i++) {
+                $offsetSeconds = random_int(0, max(1, (int) abs($window)));
+                $occurredAt = $start->addSeconds($offsetSeconds);
+
+                $user = $teamUsers !== [] && random_int(1, 100) <= 70
+                    ? $teamUsers[array_rand($teamUsers)]
+                    : null;
+
+                $rows[] = [
+                    'id' => (string) Str::uuid(),
+                    'project_id' => $project->id,
+                    'trace_id' => null,
+                    'level' => $tpl['level'],
+                    'message' => $tpl['message'],
+                    'source_type' => $tpl['source_type'],
+                    'source_label' => $tpl['source'],
+                    'user_name' => $user?->name,
+                    'context' => json_encode($this->buildLogContext($tpl['context_factory'])),
+                    'environment' => $environments[array_rand($environments)],
+                    'occurred_at' => $occurredAt,
+                    'created_at' => $occurredAt,
+                    'updated_at' => $occurredAt,
+                ];
+            }
+        }
+
+        foreach (array_chunk($rows, 500) as $chunk) {
+            LogEntry::query()->insert($chunk);
+        }
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildLogContext(string $kind): array
+    {
+        return match ($kind) {
+            'backup' => [
+                'backup_id' => random_int(100_000, 999_999),
+                'site_id' => random_int(10_000, 99_999),
+                'domain' => Arr::random(['mseducationacademy.in', 'shopfly.io', 'acme.test', 'tenant-3a.flywp.test']),
+            ],
+            'queue' => [
+                'job_id' => 'jb_'.Str::random(10),
+                'queue' => Arr::random(['default', 'high', 'webhooks', 'media']),
+                'attempts' => random_int(1, 3),
+            ],
+            'tenant' => [
+                'tenant_id' => 'ten_'.Str::random(8),
+                'keys_warmed' => random_int(20, 250),
+            ],
+            'supervisor' => [
+                'supervisor' => 'horizon-supervisor-1',
+                'processes' => random_int(2, 10),
+            ],
+            'server' => [
+                'server_id' => random_int(10, 90),
+                'role' => Arr::random(['proxy', 'app', 'db', 'cache']),
+            ],
+            'sync' => [
+                'provider' => Arr::random(['mailgun', 'sendgrid', 'postmark']),
+                'count' => random_int(50, 800),
+                'duration_ms' => random_int(800, 6000),
+            ],
+            'site' => [
+                'site_id' => random_int(10_000, 99_999),
+                'status' => 'sleeping',
+                'domain' => Arr::random(['old-blog.test', 'archive.acme.test', 'staging.tenant-7.flywp.test']),
+            ],
+            'webhook' => [
+                'webhook_id' => 'wh_'.Str::random(10),
+                'attempt' => random_int(2, 6),
+                'next_retry_in_seconds' => random_int(15, 600),
+            ],
+            'query' => [
+                'duration_ms' => random_int(1500, 9000),
+                'connection' => Arr::random(['mysql', 'mysql-readonly']),
+                'sql_fingerprint' => 'select * from orders where customer_id = ?',
+            ],
+            'checkout' => [
+                'idempotency_key' => 'idk_'.Str::random(12),
+                'customer_id' => 'cus_'.Str::random(8),
+            ],
+            'report' => [
+                'report' => Arr::random(['weekly-revenue', 'monthly-cohorts', 'daily-active-users']),
+                'reason' => 'TemplateNotFoundException',
+            ],
+            'payment' => [
+                'provider' => 'stripe',
+                'status' => 502,
+                'charge_id' => 'ch_'.Str::random(14),
+            ],
+            'redis' => [
+                'host' => Arr::random(['10.0.4.12', '10.0.4.13']),
+                'failover_to' => Arr::random(['10.0.4.20', '10.0.4.21']),
+            ],
+            'digest' => [
+                'recipients' => random_int(800, 2_500),
+                'campaign' => 'daily-digest-'.now()->format('Ymd'),
+            ],
+            'flag' => [
+                'flag' => Arr::random(['checkout_v2', 'new_dashboard', 'edge_cache']),
+                'enabled' => (bool) random_int(0, 1),
+            ],
+            'permissions' => [
+                'user_id' => random_int(1, 5000),
+                'cache_key' => 'user.permissions.'.random_int(1, 5000),
+            ],
+            'prune' => [
+                'pruned' => random_int(1000, 8000),
+                'before' => now()->subDays(7)->toDateString(),
+            ],
+            'disk' => [
+                'mount' => '/',
+                'used_pct' => random_int(95, 99),
+                'host' => Arr::random(['app-prod-1', 'app-prod-2', 'app-prod-3']),
+            ],
+            default => [],
+        };
+    }
+
+    /**
+     * @return list<array{id:string,email:string,name:string}>
+     */
+    private function buildEndUserPool(): array
+    {
+        $names = [
+            'Felix Rose-Collins',
+            'Danny Verbeek',
+            'Harold Datus',
+            'Denis Gomes Franco',
+            'Kushal Karki',
+            'Suttichai Naksoda',
+            'Vedat Uikani',
+            'Marta Lindqvist',
+            'Carlos Mendoza',
+            'Aiko Tanaka',
+            'Priya Raman',
+            'Sebastian Klein',
+            'Olusola Adebayo',
+            'Lena Petrov',
+            'Wei Zhang',
+            'Hugo Bernard',
+            'Amelia Foster',
+            'Kai Stevenson',
+            'Noemi Schulte',
+            'Jamal Robinson',
+            'Ines Cardoso',
+            'Tobias Hartmann',
+            'Sara Khoury',
+            'Min-jun Park',
+            'Beatriz Costa',
+        ];
+
+        $domains = ['ranktracker.com', 'dotnow.nl', 'moderngeeks.com', 'denisgomes.com.br', 'codethrive.io', 'flywp.test', 'acme.test', 'shopfly.io'];
+
+        $users = [];
+        foreach ($names as $i => $name) {
+            $first = strtolower(explode(' ', $name)[0]);
+            $first = preg_replace('/[^a-z]/', '', $first);
+            $users[] = [
+                'id' => 'usr_'.Str::random(10),
+                'email' => $first.'@'.$domains[$i % count($domains)],
+                'name' => $name,
+            ];
+        }
+
+        return $users;
     }
 }

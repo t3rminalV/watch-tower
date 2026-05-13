@@ -1,16 +1,19 @@
 <?php
 
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\Project\CacheController;
 use App\Http\Controllers\Project\CommandsController;
 use App\Http\Controllers\Project\ExceptionsController;
 use App\Http\Controllers\Project\IssuesController;
 use App\Http\Controllers\Project\JobsController;
+use App\Http\Controllers\Project\LogsController;
 use App\Http\Controllers\Project\MailController;
 use App\Http\Controllers\Project\NotificationsController;
-use App\Http\Controllers\Project\PlaceholderController;
+use App\Http\Controllers\Project\OutgoingRequestsController;
 use App\Http\Controllers\Project\QueriesController;
 use App\Http\Controllers\Project\RequestsController;
 use App\Http\Controllers\Project\ScheduledTasksController;
+use App\Http\Controllers\Project\UsersController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', [DashboardController::class, 'home'])->name('home');
@@ -57,7 +60,14 @@ Route::scopeBindings()
         Route::get('/notifications/{notification}', [NotificationsController::class, 'show'])
             ->where('notification', '[A-Fa-f0-9]{40}')
             ->name('notifications.show');
-        Route::get('/{section}', PlaceholderController::class)
-            ->where('section', 'events|logs|cache|gates|views|models|http-client|dumps|redis')
-            ->name('placeholder');
+        Route::get('/cache', [CacheController::class, 'index'])->name('cache.index');
+        Route::get('/http-client', [OutgoingRequestsController::class, 'index'])->name('http-client.index');
+        Route::get('/http-client/{domain}', [OutgoingRequestsController::class, 'show'])
+            ->where('domain', '[A-Fa-f0-9]{40}')
+            ->name('http-client.show');
+        Route::get('/logs', [LogsController::class, 'index'])->name('logs.index');
+        Route::get('/users', [UsersController::class, 'index'])->name('users.index');
+        Route::get('/users/{user}', [UsersController::class, 'show'])
+            ->where('user', '[A-Za-z0-9_-]+')
+            ->name('users.show');
     });

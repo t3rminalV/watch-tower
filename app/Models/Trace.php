@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'status_code',
     'user_identifier',
     'user_email',
+    'user_name',
     'duration_ms',
     'db_queries_count',
     'db_time_ms',
