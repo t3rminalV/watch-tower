@@ -5,7 +5,6 @@ import { useState } from 'react';
 import { PageHeader } from '@/components/page-header';
 import { Pagination } from '@/components/pagination';
 import { Card } from '@/components/ui/card';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { AppLayout } from '@/layouts/app-layout';
 import { cn } from '@/lib/utils';
@@ -63,13 +62,12 @@ const STATUS_TABS = [
 ];
 
 const GRID_COLS =
-    'grid-cols-[32px_60px_36px_minmax(0,1fr)_72px_72px_88px_88px_120px_90px_90px_36px]';
+    'grid-cols-[60px_36px_minmax(0,1fr)_72px_72px_88px_88px_120px_90px_90px_36px]';
 
 export default function IssuesIndex({ groups, filters, counts }: Props) {
     const { props } = usePage<SharedProps>();
     const projectSlug = props.currentProject?.slug ?? '';
     const [search, setSearch] = useState(filters.search);
-    const [selected, setSelected] = useState<Record<string, boolean>>({});
 
     const visit = (params: Record<string, string | null>) => {
         const url = new URL(window.location.href);
@@ -97,23 +95,6 @@ export default function IssuesIndex({ groups, filters, counts }: Props) {
         } else {
             visit({ sort: key, direction: 'desc' });
         }
-    };
-
-    const allChecked = groups.data.length > 0 && groups.data.every((row) => selected[row.id]);
-    const toggleAll = () => {
-        if (allChecked) {
-            setSelected({});
-        } else {
-            const next: Record<string, boolean> = {};
-            groups.data.forEach((row) => {
-                next[row.id] = true;
-            });
-            setSelected(next);
-        }
-    };
-
-    const toggleOne = (id: string) => {
-        setSelected((prev) => ({ ...prev, [id]: !prev[id] }));
     };
 
     return (
@@ -161,9 +142,6 @@ export default function IssuesIndex({ groups, filters, counts }: Props) {
                             GRID_COLS,
                         )}
                     >
-                        <span className="flex items-center justify-center">
-                            <Checkbox checked={allChecked} onChange={toggleAll} />
-                        </span>
                         <SortHeader label="ID" sortKey="id" current={filters.sort} direction={filters.direction} onSort={onSort} />
                         <span />
                         <span>Issue</span>
@@ -186,8 +164,6 @@ export default function IssuesIndex({ groups, filters, counts }: Props) {
                                     key={issue.id}
                                     issue={issue}
                                     projectSlug={projectSlug}
-                                    checked={!!selected[issue.id]}
-                                    onToggle={() => toggleOne(issue.id)}
                                 />
                             ))}
                         </ul>
@@ -282,13 +258,9 @@ function SortHeader({
 function IssueRowItem({
     issue,
     projectSlug,
-    checked,
-    onToggle,
 }: {
     issue: IssueRow;
     projectSlug: string;
-    checked: boolean;
-    onToggle: () => void;
 }) {
     const href = issues.show([projectSlug, issue.display_number]).url;
 
@@ -299,10 +271,6 @@ function IssueRowItem({
                 GRID_COLS,
             )}
         >
-            <span className="flex items-center justify-center">
-                <Checkbox checked={checked} onChange={onToggle} />
-            </span>
-
             <Link href={href} className="font-mono text-xs text-muted-foreground hover:text-foreground">
                 {issue.display_number}
             </Link>
