@@ -107,7 +107,6 @@ export default function IssuesIndex({ groups, filters, counts }: Props) {
                         active="exceptions"
                         tabs={[
                             { value: 'exceptions', label: 'Exceptions', count: counts.all },
-                            { value: 'performance', label: 'Performance', count: 0, disabled: true },
                         ]}
                     />
 
