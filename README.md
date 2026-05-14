@@ -69,21 +69,10 @@ For anything that fails or needs explanation, see [doc/install.md](doc/install.m
 
 ---
 
-## Project layout
-
-```
-app/
-  Http/          Controllers, middleware, requests
-  Models/        Eloquent models (Project, ErrorGroup, Trace, ...)
-  Jobs/          Queued ingestion + processing jobs
-  Watch/         Ingestion pipeline (EventStore, Fingerprinter, NightwatchTranslator)
-resources/js/
-  pages/         Inertia React pages
-  components/    Shared React components
-routes/          web.php, api.php, console.php
-tests/           Pest tests (Feature, Unit, Browser)
-doc/             Install guides and planning docs
-```
+## Image:
+<img width="2928" height="1730" alt="dashboard" src="https://github.com/user-attachments/assets/3afe51c6-9bd9-49f8-a111-7928bb57b77e" />
+<img width="2928" height="1730" alt="Requests" src="https://github.com/user-attachments/assets/3d58d925-3400-4fce-b7b8-718747464c02" />
+<img width="2928" height="1730" alt="issue" src="https://github.com/user-attachments/assets/917c138c-156a-4fde-84f2-0d959d497c75" />
 
 ---
 
