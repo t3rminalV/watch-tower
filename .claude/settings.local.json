@@ -91,7 +91,10 @@
       "Bash(curl -s -b /tmp/lw-cookies.txt -o /tmp/projects-create.html -w 'Status: %{http_code}\\\\n' http://127.0.0.1:8765/settings/projects/create)",
       "Bash(curl -s -b /tmp/admin-cookies.txt -o /dev/null -w 'Status: %{http_code}\\\\n' http://127.0.0.1:8765/projects/acme-app/dashboard)",
       "Bash(pkill -f \"php artisan serve --port=8765\")",
-      "Bash(git stash *)"
+      "Bash(git stash *)",
+      "Bash(npx eslint *)",
+      "Bash(grep -oE \".\\\\{0,30\\\\}\\\\.data\\\\b.\\\\{0,30\\\\}\" /Users/wedevs/Desktop/projects/laravel/public/build/assets/BarChart-CpDw0grK.js)",
+      "Bash(grep -aoE \".{0,30}\\\\.data.{0,30}\" /Users/wedevs/Desktop/projects/laravel/public/build/assets/BarChart-CpDw0grK.js)"
     ],
     "additionalDirectories": [
       "/tmp"

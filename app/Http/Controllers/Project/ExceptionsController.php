@@ -6,44 +6,43 @@ use App\Http\Controllers\Controller;
 use App\Models\ErrorGroup;
 use App\Models\ErrorOccurrence;
 use App\Models\Project;
-use Carbon\CarbonImmutable;
+use App\Watch\Stats\ExceptionStats;
+use App\Watch\Stats\TimeRange;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class ExceptionsController extends Controller
 {
-    public function index(Project $project, Request $request): Response
+    public function index(Project $project, Request $request, ExceptionStats $stats): Response
     {
-        $status = $request->string('status')->toString() ?: 'unresolved';
+        $range = TimeRange::fromLabel($request->string('range', '24h')->toString());
+        $userId = $request->string('user_id')->toString() ?: null;
+        $search = trim($request->string('search')->toString()) ?: null;
+        $filter = $this->parseFilter($request->string('filter')->toString());
 
-        $groups = $project->errorGroups()
-            ->when($status !== 'all', fn ($q) => $q->where('status', $status))
-            ->orderByDesc('last_occurrence_at')
-            ->paginate(25)
-            ->withQueryString()
-            ->through(fn ($group) => [
-                'id' => $group->id,
-                'fingerprint' => $group->fingerprint,
-                'exception_class' => $group->exception_class,
-                'first_message' => $group->first_message,
-                'first_file' => $group->first_file,
-                'first_line' => $group->first_line,
-                'total_count' => $group->total_count,
-                'first_occurrence_at' => $group->first_occurrence_at?->toIso8601String(),
-                'last_occurrence_at' => $group->last_occurrence_at?->toIso8601String(),
-                'status' => $group->status,
-            ]);
+        $summary = $stats->summary($project, $range, $userId, $filter);
+        $groups = $stats->groups($project, $range, $userId, $filter, $search);
+        $users = $stats->topUsers($project, $range);
 
         return Inertia::render('projects/exceptions/index', [
+            'summary' => $summary,
             'groups' => $groups,
-            'filters' => ['status' => $status],
+            'users' => $users,
+            'selectedRange' => $range->label,
+            'filters' => [
+                'filter' => $request->string('filter')->toString() ?: 'all',
+                'user_id' => $userId,
+                'search' => $search,
+            ],
         ]);
     }
 
-    public function show(Project $project, string $exception): Response
+    public function show(Project $project, string $exception, Request $request, ExceptionStats $stats): Response
     {
+        $range = TimeRange::fromLabel($request->string('range', '14d')->toString());
+        $userId = $request->string('user_id')->toString() ?: null;
+
         /** @var ErrorGroup $group */
         $group = $project->errorGroups()
             ->where('id', $exception)
@@ -51,44 +50,65 @@ class ExceptionsController extends Controller
 
         /** @var ErrorOccurrence|null $latest */
         $latest = $group->occurrences()
+            ->with('trace:id,method,uri')
             ->latest('occurred_at')
             ->first();
 
-        $usersCount = (int) $group->occurrences()
-            ->whereNotNull('user_identifier')
-            ->distinct('user_identifier')
-            ->count('user_identifier');
+        $detail = $stats->detail($project, $group);
+        $buckets = $stats->buckets($project, $range, $userId, null, $group->id);
+        $users = $stats->topUsers($project, $range);
 
-        $environmentCounts = $group->occurrences()
-            ->select('environment', DB::raw('count(*) as total'))
-            ->groupBy('environment')
+        $totalsInRange = $group->occurrences()
+            ->whereBetween('occurred_at', [$range->from, $range->to])
+            ->selectRaw('COUNT(*) AS total')
+            ->selectRaw('SUM(CASE WHEN is_handled = 1 THEN 1 ELSE 0 END) AS handled')
+            ->selectRaw('SUM(CASE WHEN is_handled = 0 THEN 1 ELSE 0 END) AS unhandled')
+            ->first();
+
+        $occurrenceList = $group->occurrences()
+            ->with('trace:id,method,uri')
+            ->latest('occurred_at')
+            ->limit(50)
             ->get()
-            ->map(fn ($row) => [
-                'environment' => $row->environment ?? 'unknown',
-                'count' => (int) $row->total,
+            ->map(fn (ErrorOccurrence $occurrence) => [
+                'id' => $occurrence->id,
+                'occurred_at' => $occurrence->occurred_at?->toIso8601String(),
+                'message' => $occurrence->message,
+                'user_identifier' => $occurrence->user_identifier,
+                'user_email' => $occurrence->user_email,
+                'user_name' => $occurrence->user_name,
+                'source_type' => $occurrence->trace?->method ?: 'COMMAND',
+                'source_label' => $this->sourceLabel($occurrence),
             ])
             ->all();
-
-        $sparkline = $this->sparkline($project, $group->id);
 
         return Inertia::render('projects/exceptions/show', [
             'exception' => [
                 'id' => $group->id,
                 'exception_class' => $group->exception_class,
                 'short_class' => $this->shortClass($group->exception_class),
-                'first_message' => $group->first_message,
+                'first_message' => $group->first_message ?? '',
                 'first_file' => $group->first_file,
                 'first_line' => $group->first_line,
-                'total_count' => $group->total_count,
-                'users_count' => $usersCount,
-                'first_occurrence_at' => $group->first_occurrence_at?->toIso8601String(),
-                'last_occurrence_at' => $group->last_occurrence_at?->toIso8601String(),
+                'total_count' => (int) $group->total_count,
                 'status' => $group->status,
                 'is_handled' => (bool) $group->is_handled,
                 'framework_version' => $group->framework_version,
                 'language_version' => $group->language_version,
-                'environments' => $environmentCounts,
-                'sparkline' => $sparkline,
+                'first_seen' => $detail['first_seen'],
+                'last_seen' => $detail['last_seen'],
+                'php_versions' => $detail['php_versions'],
+                'laravel_versions' => $detail['laravel_versions'],
+                'impacted_users' => $detail['impacted_users'],
+                'servers' => $detail['servers'],
+                'environments' => $detail['environments'],
+                'occurrences' => $detail['occurrences'],
+                'totals_in_range' => [
+                    'total' => (int) ($totalsInRange?->total ?? 0),
+                    'handled' => (int) ($totalsInRange?->handled ?? 0),
+                    'unhandled' => (int) ($totalsInRange?->unhandled ?? 0),
+                ],
+                'buckets' => $buckets,
                 'latest_occurrence' => $latest ? [
                     'id' => $latest->id,
                     'message' => $latest->message,
@@ -96,36 +116,41 @@ class ExceptionsController extends Controller
                     'line' => $latest->line,
                     'stacktrace' => $latest->stacktrace ?? [],
                     'context' => $latest->context ?? [],
+                    'environment' => $latest->environment,
                     'occurred_at' => $latest->occurred_at?->toIso8601String(),
                 ] : null,
+                'occurrence_list' => $occurrenceList,
+            ],
+            'users' => $users,
+            'selectedRange' => $range->label,
+            'filters' => [
+                'user_id' => $userId,
             ],
         ]);
     }
 
-    /**
-     * @return list<int>
-     */
-    private function sparkline(Project $project, string $groupId): array
+    private function sourceLabel(ErrorOccurrence $occurrence): ?string
     {
-        $start = CarbonImmutable::now()->subDays(14)->startOfDay();
-        $end = CarbonImmutable::now()->endOfDay();
-
-        $rows = ErrorOccurrence::query()
-            ->where('project_id', $project->id)
-            ->where('error_group_id', $groupId)
-            ->whereBetween('occurred_at', [$start, $end])
-            ->selectRaw('DATE(occurred_at) as day, count(*) as total')
-            ->groupBy('day')
-            ->pluck('total', 'day')
-            ->all();
-
-        $buckets = [];
-        for ($i = 0; $i < 14; $i++) {
-            $day = $start->addDays($i)->format('Y-m-d');
-            $buckets[] = (int) ($rows[$day] ?? 0);
+        if ($occurrence->trace?->uri) {
+            return $occurrence->trace->uri;
         }
 
-        return $buckets;
+        if ($occurrence->file) {
+            $parts = explode('/', $occurrence->file);
+
+            return end($parts) ?: $occurrence->file;
+        }
+
+        return null;
+    }
+
+    private function parseFilter(string $filter): ?bool
+    {
+        return match ($filter) {
+            'handled' => true,
+            'unhandled' => false,
+            default => null,
+        };
     }
 
     private function shortClass(string $fqcn): string
