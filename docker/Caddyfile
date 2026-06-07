@@ -1,0 +1,12 @@
+{
+	frankenphp
+	order php_server before file_server
+	# Coolify's proxy terminates TLS, so serve plain HTTP inside the container.
+	auto_https off
+}
+
+:80 {
+	root * /app/public
+	encode zstd br gzip
+	php_server
+}

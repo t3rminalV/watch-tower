@@ -1,0 +1,61 @@
+# Coolify: deploy with the "Docker Compose" build pack.
+# Uses an EXTERNAL Postgres (set DB_* in Coolify env vars) and runs the web app
+# and the queue worker as two separate containers from the same built image.
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: watch-tower:latest
+    restart: unless-stopped
+    environment:
+      APP_NAME: "Watch Tower"
+      APP_ENV: production
+      APP_DEBUG: "false"
+      # Generate with:  echo "base64:$(openssl rand -base64 32)"
+      APP_KEY: ${APP_KEY}
+      APP_URL: ${APP_URL}
+      DB_CONNECTION: pgsql
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_DATABASE: ${DB_DATABASE}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      QUEUE_CONNECTION: database
+      CACHE_STORE: database
+      SESSION_DRIVER: database
+      LOG_CHANNEL: stderr
+    volumes:
+      - watchtower-storage:/app/storage
+    ports:
+      - "80"
+
+  worker:
+    image: watch-tower:latest
+    restart: unless-stopped
+    depends_on:
+      - app
+    command: php artisan queue:work --tries=3 --timeout=90 --sleep=3 --max-time=3600
+    environment:
+      APP_NAME: "Watch Tower"
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_KEY: ${APP_KEY}
+      APP_URL: ${APP_URL}
+      # The app container owns migrations; the worker must not run them.
+      RUN_MIGRATIONS: "false"
+      DB_CONNECTION: pgsql
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_DATABASE: ${DB_DATABASE}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      QUEUE_CONNECTION: database
+      CACHE_STORE: database
+      SESSION_DRIVER: database
+      LOG_CHANNEL: stderr
+    volumes:
+      - watchtower-storage:/app/storage
+
+volumes:
+  watchtower-storage:
