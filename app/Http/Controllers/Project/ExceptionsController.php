@@ -61,8 +61,8 @@ class ExceptionsController extends Controller
         $totalsInRange = $group->occurrences()
             ->whereBetween('occurred_at', [$range->from, $range->to])
             ->selectRaw('COUNT(*) AS total')
-            ->selectRaw('SUM(CASE WHEN is_handled = 1 THEN 1 ELSE 0 END) AS handled')
-            ->selectRaw('SUM(CASE WHEN is_handled = 0 THEN 1 ELSE 0 END) AS unhandled')
+            ->selectRaw('SUM(CASE WHEN is_handled = true THEN 1 ELSE 0 END) AS handled')
+            ->selectRaw('SUM(CASE WHEN is_handled = false THEN 1 ELSE 0 END) AS unhandled')
             ->first();
 
         $occurrenceList = $group->occurrences()

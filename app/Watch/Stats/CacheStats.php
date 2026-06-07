@@ -75,12 +75,12 @@ class CacheStats
     public function topKeys(Project $project, TimeRange $range, ?string $search, int $limit = 100): array
     {
         $query = $this->baseQuery($project, $range)
-            ->selectRaw('`key`')
+            ->select('key')
             ->selectRaw("SUM(CASE WHEN operation = 'hit' THEN 1 ELSE 0 END) AS hit_count")
             ->selectRaw("SUM(CASE WHEN operation = 'miss' THEN 1 ELSE 0 END) AS miss_count")
             ->selectRaw("SUM(CASE WHEN operation = 'write' THEN 1 ELSE 0 END) AS write_count")
             ->selectRaw("SUM(CASE WHEN operation = 'delete' THEN 1 ELSE 0 END) AS delete_count")
-            ->selectRaw("SUM(CASE WHEN succeeded = 0 AND operation IN ('write','delete') THEN 1 ELSE 0 END) AS failure_count")
+            ->selectRaw("SUM(CASE WHEN succeeded = false AND operation IN ('write','delete') THEN 1 ELSE 0 END) AS failure_count")
             ->groupBy('key');
 
         if ($search !== null && $search !== '') {

@@ -335,11 +335,15 @@ class IssuesController extends Controller
         $start = CarbonImmutable::now()->subDays(14)->startOfDay();
         $end = CarbonImmutable::now()->endOfDay();
 
+        $dayExpr = ErrorOccurrence::query()->getConnection()->getDriverName() === 'pgsql'
+            ? 'CAST(occurred_at AS date)'
+            : 'DATE(occurred_at)';
+
         $rows = ErrorOccurrence::query()
             ->where('project_id', $project->id)
             ->whereIn('error_group_id', $groupIds)
             ->whereBetween('occurred_at', [$start, $end])
-            ->selectRaw('error_group_id, DATE(occurred_at) as day, count(*) as total')
+            ->selectRaw("error_group_id, {$dayExpr} as day, count(*) as total")
             ->groupBy('error_group_id', 'day')
             ->get();
 

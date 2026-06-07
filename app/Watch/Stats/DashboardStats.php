@@ -8,8 +8,6 @@ use App\Models\QueueJobRun;
 use App\Models\Trace;
 use Carbon\CarbonImmutable;
 use Carbon\CarbonInterface;
-use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 
 class DashboardStats
 {
@@ -42,14 +40,13 @@ class DashboardStats
     {
         $traces = Trace::query()
             ->where('project_id', $project->id)
-            ->whereBetween('occurred_at', [$range->from, $range->to])
-            ->orderBy('occurred_at');
+            ->whereBetween('occurred_at', [$range->from, $range->to]);
 
         $stats = (clone $traces)
             ->selectRaw('COUNT(*) AS total')
-            ->selectRaw("SUM(CASE WHEN status_code < 400 THEN 1 ELSE 0 END) AS success")
-            ->selectRaw("SUM(CASE WHEN status_code >= 400 AND status_code < 500 THEN 1 ELSE 0 END) AS client_error")
-            ->selectRaw("SUM(CASE WHEN status_code >= 500 THEN 1 ELSE 0 END) AS server_error")
+            ->selectRaw('SUM(CASE WHEN status_code < 400 THEN 1 ELSE 0 END) AS success')
+            ->selectRaw('SUM(CASE WHEN status_code >= 400 AND status_code < 500 THEN 1 ELSE 0 END) AS client_error')
+            ->selectRaw('SUM(CASE WHEN status_code >= 500 THEN 1 ELSE 0 END) AS server_error')
             ->selectRaw('MIN(duration_ms) AS min_duration')
             ->selectRaw('MAX(duration_ms) AS max_duration')
             ->selectRaw('AVG(duration_ms) AS avg_duration')

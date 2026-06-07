@@ -87,7 +87,7 @@ class QueryStats
         }
 
         $rows = (clone $base)
-            ->selectRaw('`sql`')
+            ->select('sql')
             ->selectRaw('MAX(connection_name) AS connection_name')
             ->selectRaw('COUNT(*) AS total')
             ->selectRaw('SUM(duration_ms) AS total_ms')
